@@ -1,213 +1,241 @@
+#!/usr/bin/env python3
+"""
+Script de Teste Automatizado
+Testa o sistema de multiplicação distribuída com diferentes cenários
+"""
 
 import subprocess
 import time
 import sys
 import os
+import tempfile
 
-def limpar_tela():
-    """Limpa a tela do terminal"""
-    os.system('cls' if os.name == 'nt' else 'clear')
 
-def executar_teste():
-    """Executa teste completo do sistema"""
-    
-    print("\n" + "="*70)
-    print("  TESTE AUTOMATIZADO - MULTIPLICACAO DISTRIBUIDA DE MATRIZES")
-    print("="*70 + "\n")
-    
-    print("[INFO] Este script ira:")
-    print("   1. Iniciar o servidor em um processo")
-    print("   2. Iniciar 2 clientes em processos separados")
-    print("   3. Executar a multiplicacao distribuida")
-    print("   4. Verificar os resultados")
-    print("\n" + "="*70 + "\n")
-    
-    input("Pressione ENTER para iniciar o teste...")
-    
-    processos = []
-    
+class TestRunner:
+    def __init__(self):
+        self.server_processes = []
+
+    def start_servers(self):
+        """Inicia os servidores em background"""
+        print("="*60)
+        print("Iniciando servidores para teste...")
+        print("="*60)
+
+        # Inicia servidor 1
+        server1 = subprocess.Popen(
+            ['python', 'servidor.py', '5000', '1'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=os.path.dirname(os.path.abspath(__file__))
+        )
+        self.server_processes.append(server1)
+        print("✓ Servidor 1 iniciado (porta 5000)")
+
+        # Inicia servidor 2
+        server2 = subprocess.Popen(
+            ['python', 'servidor.py', '5001', '2'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=os.path.dirname(os.path.abspath(__file__))
+        )
+        self.server_processes.append(server2)
+        print("✓ Servidor 2 iniciado (porta 5001)")
+
+        # Aguarda servidores iniciarem
+        print("\nAguardando servidores iniciarem...")
+        time.sleep(3)
+        print("✓ Servidores prontos!\n")
+
+    def stop_servers(self):
+        """Encerra todos os servidores"""
+        print("\n" + "="*60)
+        print("Encerrando servidores...")
+        print("="*60)
+
+        for proc in self.server_processes:
+            try:
+                proc.terminate()
+                proc.wait(timeout=5)
+            except:
+                proc.kill()
+
+        self.server_processes = []
+        print("✓ Servidores encerrados\n")
+
+    def run_test(self, test_name, rows_A, cols_A, cols_B):
+        """Executa um teste específico"""
+        print("="*60)
+        print(f"TESTE: {test_name}")
+        print("="*60)
+        print(f"Dimensões: ({rows_A}x{cols_A}) × ({cols_A}x{cols_B})")
+        print()
+
+        # Cria script Python temporário para executar teste
+        test_script = f"""
+import numpy as np
+import sys
+import os
+
+# Adiciona o diretório do projeto ao path
+sys.path.insert(0, r'{os.path.dirname(os.path.abspath(__file__))}')
+
+from cliente import DistributedMatrixClient, verify_result
+
+servers = [('localhost', 5000), ('localhost', 5001)]
+client = DistributedMatrixClient(servers)
+
+# Gera matrizes
+np.random.seed(42)
+matrix_A = np.random.randint(1, 10, size=({rows_A}, {cols_A}))
+matrix_B = np.random.randint(1, 10, size=({cols_A}, {cols_B}))
+
+print(f"Matriz A: {{matrix_A.shape}}")
+print(f"Matriz B: {{matrix_B.shape}}")
+
+# Executa multiplicação distribuída
+try:
+    result = client.multiply_distributed(matrix_A, matrix_B)
+
+    if result is not None:
+        # Verifica correção
+        is_correct = verify_result(matrix_A, matrix_B, result)
+
+        print()
+        print("="*60)
+        print("RESULTADO DO TESTE")
+        print("="*60)
+        print(f"Resultado correto: {{'SIM' if is_correct else 'NAO'}}")
+        print("="*60)
+
+        if is_correct:
+            sys.exit(0)
+        else:
+            sys.exit(1)
+    else:
+        print("ERRO: Falha na multiplicação distribuída")
+        sys.exit(1)
+except Exception as e:
+    print(f"ERRO: {{e}}")
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+"""
+
+        # Salva script temporário
+        temp_dir = tempfile.gettempdir()
+        test_file = os.path.join(temp_dir, 'test_matrix.py')
+
+        with open(test_file, 'w', encoding='utf-8') as f:
+            f.write(test_script)
+
+        # Executa teste
+        try:
+            result = subprocess.run(
+                ['python', test_file],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                cwd=os.path.dirname(os.path.abspath(__file__))
+            )
+
+            print(result.stdout)
+
+            if result.returncode == 0:
+                print("✓ TESTE PASSOU!\n")
+                return True
+            else:
+                print("✗ TESTE FALHOU!\n")
+                if result.stderr:
+                    print("Erros:", result.stderr)
+                return False
+
+        except subprocess.TimeoutExpired:
+            print("✗ TESTE TIMEOUT (>60s)\n")
+            return False
+        except Exception as e:
+            print(f"✗ ERRO NO TESTE: {e}\n")
+            return False
+
+    def run_all_tests(self):
+        """Executa todos os testes"""
+        print("\n")
+        print("╔" + "="*58 + "╗")
+        print("║" + " "*10 + "SUITE DE TESTES AUTOMATIZADOS" + " "*18 + "║")
+        print("║" + " "*10 + "Sistema de Multiplicação Distribuída" + " "*11 + "║")
+        print("╚" + "="*58 + "╝")
+        print()
+
+        tests = [
+            ("Matrizes Pequenas (10x10)", 10, 10, 10),
+            ("Matrizes Médias (50x50)", 50, 50, 50),
+            ("Matrizes Grandes (100x100)", 100, 100, 100),
+            ("Matrizes Retangulares (80x120)", 80, 120, 60),
+            ("Matrizes Retangulares (200x50)", 200, 50, 100),
+            ("Matrizes Muito Grandes (1x3)", 1, 10, 10),
+        ]
+
+        results = []
+
+        for test_name, rows_A, cols_A, cols_B in tests:
+            success = self.run_test(test_name, rows_A, cols_A, cols_B)
+            results.append((test_name, success))
+            time.sleep(2)  # Pausa entre testes
+
+        # Resumo
+        print("\n")
+        print("="*60)
+        print("RESUMO DOS TESTES")
+        print("="*60)
+
+        passed = sum(1 for _, success in results if success)
+        total = len(results)
+
+        for test_name, success in results:
+            status = "✓ PASSOU" if success else "✗ FALHOU"
+            print(f"{status}: {test_name}")
+
+        print()
+        print(f"Total: {passed}/{total} testes passaram")
+
+        if passed == total:
+            print("="*60)
+            print("🎉 TODOS OS TESTES PASSARAM! 🎉")
+            print("="*60)
+        else:
+            print("="*60)
+            print(f"⚠️  {total - passed} TESTE(S) FALHARAM")
+            print("="*60)
+
+        return passed == total
+
+
+def main():
+    runner = TestRunner()
+
     try:
-        # Inicia servidor
-        print("\n[SERVIDOR] Iniciando servidor...")
-        servidor = subprocess.Popen(
-            [sys.executable, 'servidor.py'],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1
-        )
-        processos.append(('Servidor', servidor))
-        time.sleep(2)
-        
-        # Inicia cliente 1
-        print("[CLIENTE 1] Iniciando Cliente 1...")
-        cliente1 = subprocess.Popen(
-            [sys.executable, 'cliente.py'],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1
-        )
-        processos.append(('Cliente 1', cliente1))
-        time.sleep(1)
-        
-        # Inicia cliente 2
-        print("[CLIENTE 2] Iniciando Cliente 2...")
-        cliente2 = subprocess.Popen(
-            [sys.executable, 'cliente.py'],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1
-        )
-        processos.append(('Cliente 2', cliente2))
-        
-        print("\n[OK] Todos os processos iniciados!")
-        print("[AGUARDANDO] Conclusao do teste...\n")
-        print("="*70)
-        
-        # Aguarda servidor terminar (ele termina apos processar)
-        servidor.wait(timeout=30)
-        
-        # Aguarda clientes
-        cliente1.wait(timeout=5)
-        cliente2.wait(timeout=5)
-        
-        print("\n" + "="*70)
-        print("[SUCESSO] TESTE CONCLUIDO!")
-        print("="*70 + "\n")
-        
-        # Mostra saidas
-        print("\n[SAIDA] SERVIDOR:")
-        print("-"*70)
-        stdout, stderr = servidor.communicate()
-        print(stdout)
-        if stderr:
-            print("Erros:", stderr)
-        
-        print("\n[SAIDA] CLIENTE 1:")
-        print("-"*70)
-        stdout, stderr = cliente1.communicate()
-        print(stdout)
-        if stderr:
-            print("Erros:", stderr)
-            
-        print("\n[SAIDA] CLIENTE 2:")
-        print("-"*70)
-        stdout, stderr = cliente2.communicate()
-        print(stdout)
-        if stderr:
-            print("Erros:", stderr)
-        
-    except subprocess.TimeoutExpired:
-        print("\n[TIMEOUT] O teste demorou mais que o esperado")
-        
+        # Inicia servidores
+        runner.start_servers()
+
+        # Executa testes
+        all_passed = runner.run_all_tests()
+
+        # Encerra servidores
+        runner.stop_servers()
+
+        # Exit code
+        sys.exit(0 if all_passed else 1)
+
     except KeyboardInterrupt:
-        print("\n\n[INTERROMPIDO] Teste interrompido pelo usuario")
-        
+        print("\n\nTestes interrompidos pelo usuário")
+        runner.stop_servers()
+        sys.exit(1)
     except Exception as e:
-        print(f"\n[ERRO] Durante o teste: {e}")
+        print(f"\nERRO: {e}")
         import traceback
         traceback.print_exc()
-        
-    finally:
-        # Encerra todos os processos
-        print("\n[FECHANDO] Encerrando processos...")
-        for nome, processo in processos:
-            try:
-                processo.terminate()
-                processo.wait(timeout=2)
-                print(f"   [OK] {nome} encerrado")
-            except:
-                processo.kill()
-                print(f"   [FORCADO] {nome} foi forcado a encerrar")
-                
-        print("\n[OK] Teste finalizado.\n")
-
-
-def menu_principal():
-    """Menu principal do script de teste"""
-    
-    while True:
-        limpar_tela()
-        print("\n" + "="*70)
-        print("  SISTEMA DE MULTIPLICACAO DISTRIBUIDA - MENU DE TESTES")
-        print("="*70 + "\n")
-        
-        print("Escolha uma opcao:")
-        print()
-        print("1. Executar teste automatizado completo")
-        print("2. Iniciar apenas o servidor")
-        print("3. Iniciar apenas um cliente")
-        print("4. Ver instrucoes de uso manual")
-        print("5. Sair")
-        print()
-        
-        opcao = input("Opcao: ").strip()
-        
-        if opcao == '1':
-            executar_teste()
-            input("\nPressione ENTER para voltar ao menu...")
-            
-        elif opcao == '2':
-            print("\n[SERVIDOR] Iniciando servidor...")
-            print("(Pressione Ctrl+C para interromper)\n")
-            try:
-                subprocess.run([sys.executable, 'servidor.py'])
-            except KeyboardInterrupt:
-                print("\n\n[INTERROMPIDO] Servidor interrompido")
-            input("\nPressione ENTER para voltar ao menu...")
-            
-        elif opcao == '3':
-            print("\n[CLIENTE] Iniciando cliente...")
-            print("(Pressione Ctrl+C para interromper)\n")
-            try:
-                subprocess.run([sys.executable, 'cliente.py'])
-            except KeyboardInterrupt:
-                print("\n\n[INTERROMPIDO] Cliente interrompido")
-            input("\nPressione ENTER para voltar ao menu...")
-            
-        elif opcao == '4':
-            print("\n" + "="*70)
-            print("  INSTRUCOES DE USO MANUAL")
-            print("="*70 + "\n")
-            print("Para executar o sistema manualmente, siga os passos:")
-            print()
-            print("1. Abra 3 terminais diferentes")
-            print()
-            print("2. No Terminal 1 (Servidor):")
-            print("   $ python servidor.py")
-            print()
-            print("3. No Terminal 2 (Cliente 1):")
-            print("   $ python cliente.py")
-            print()
-            print("4. No Terminal 3 (Cliente 2):")
-            print("   $ python cliente.py")
-            print()
-            print("5. O servidor aguardara os 2 clientes conectarem")
-            print("6. Apos conexao, a multiplicacao sera executada automaticamente")
-            print()
-            print("Para usar em maquinas diferentes:")
-            print("   $ python cliente.py <IP_DO_SERVIDOR> 5000")
-            print()
-            print("="*70)
-            input("\nPressione ENTER para voltar ao menu...")
-            
-        elif opcao == '5':
-            print("\n[SAINDO] Encerrando...\n")
-            break
-            
-        else:
-            print("\n[ERRO] Opcao invalida!")
-            time.sleep(1)
+        runner.stop_servers()
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    try:
-        menu_principal()
-    except KeyboardInterrupt:
-        print("\n\n[SAINDO] Encerrando...\n")
-    except Exception as e:
-        print(f"\n[ERRO] {e}")
-        import traceback
-        traceback.print_exc()
+    main()
