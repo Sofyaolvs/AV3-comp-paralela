@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-Script de Teste Automatizado
-Testa o sistema de multiplicação distribuída com diferentes cenários
-"""
 
 import subprocess
 import time
@@ -16,12 +12,12 @@ class TestRunner:
         self.server_processes = []
 
     def start_servers(self):
-        """Inicia os servidores em background"""
+        # Inicia múltiplos servidores em modo background para execução dos testes
         print("="*60)
         print("Iniciando servidores para teste...")
         print("="*60)
 
-        # Inicia servidor 1
+        # Inicia o primeiro servidor na porta 5000 com 1 core
         server1 = subprocess.Popen(
             ['python', 'servidor.py', '5000', '1'],
             stdout=subprocess.PIPE,
@@ -29,9 +25,9 @@ class TestRunner:
             cwd=os.path.dirname(os.path.abspath(__file__))
         )
         self.server_processes.append(server1)
-        print("✓ Servidor 1 iniciado (porta 5000)")
+        print("Servidor 1 iniciado (porta 5000)")
 
-        # Inicia servidor 2
+        # Inicia o segundo servidor na porta 5001 com 2 cores
         server2 = subprocess.Popen(
             ['python', 'servidor.py', '5001', '2'],
             stdout=subprocess.PIPE,
@@ -39,52 +35,56 @@ class TestRunner:
             cwd=os.path.dirname(os.path.abspath(__file__))
         )
         self.server_processes.append(server2)
-        print("✓ Servidor 2 iniciado (porta 5001)")
+        print("Servidor 2 iniciado (porta 5001)")
 
-        # Aguarda servidores iniciarem
+        # Aguarda os servidores inicializarem completamente
         print("\nAguardando servidores iniciarem...")
         time.sleep(3)
-        print("✓ Servidores prontos!\n")
+        print("Servidores prontos!\n")
 
     def stop_servers(self):
-        """Encerra todos os servidores"""
+        # Encerra todos os processos de servidor
         print("\n" + "="*60)
         print("Encerrando servidores...")
         print("="*60)
 
         for proc in self.server_processes:
+            # Itera sobre cada processo de servidor para encerrá-lo
             try:
+                # Tenta encerrar o processo graciosamente
                 proc.terminate()
                 proc.wait(timeout=5)
             except:
+                # Se não responder, força o encerramento
                 proc.kill()
 
         self.server_processes = []
-        print("✓ Servidores encerrados\n")
+        print("Servidores encerrados\n")
 
     def run_test(self, test_name, rows_A, cols_A, cols_B):
-        """Executa um teste específico"""
+        # Executa um teste individual com as dimensões especificadas
         print("="*60)
         print(f"TESTE: {test_name}")
         print("="*60)
         print(f"Dimensões: ({rows_A}x{cols_A}) × ({cols_A}x{cols_B})")
         print()
 
-        # Cria script Python temporário para executar teste
+        # Cria um script Python temporário para executar o teste
         test_script = f"""
 import numpy as np
 import sys
 import os
 
-# Adiciona o diretório do projeto ao path
+# Adiciona o diretório do projeto ao path para importação
 sys.path.insert(0, r'{os.path.dirname(os.path.abspath(__file__))}')
 
 from cliente import DistributedMatrixClient, verify_result
 
+# Configura os servidores de teste
 servers = [('localhost', 5000), ('localhost', 5001)]
 client = DistributedMatrixClient(servers)
 
-# Gera matrizes
+# Gera matrizes aleatórias com seed fixa para reprodutibilidade
 np.random.seed(42)
 matrix_A = np.random.randint(1, 10, size=({rows_A}, {cols_A}))
 matrix_B = np.random.randint(1, 10, size=({cols_A}, {cols_B}))
@@ -92,12 +92,12 @@ matrix_B = np.random.randint(1, 10, size=({cols_A}, {cols_B}))
 print(f"Matriz A: {{matrix_A.shape}}")
 print(f"Matriz B: {{matrix_B.shape}}")
 
-# Executa multiplicação distribuída
+# Executa a multiplicação distribuída e valida o resultado
 try:
     result = client.multiply_distributed(matrix_A, matrix_B)
 
     if result is not None:
-        # Verifica correção
+        # Verifica se o resultado está correto
         is_correct = verify_result(matrix_A, matrix_B, result)
 
         print()
@@ -121,15 +121,16 @@ except Exception as e:
     sys.exit(1)
 """
 
-        # Salva script temporário
+        # Salva o script em um arquivo temporário
         temp_dir = tempfile.gettempdir()
         test_file = os.path.join(temp_dir, 'test_matrix.py')
 
         with open(test_file, 'w', encoding='utf-8') as f:
             f.write(test_script)
 
-        # Executa teste
+        # Executa o teste e captura a saída
         try:
+            # Tenta executar o script de teste
             result = subprocess.run(
                 ['python', test_file],
                 capture_output=True,
@@ -140,31 +141,38 @@ except Exception as e:
 
             print(result.stdout)
 
+            # Verifica o código de retorno para determinar sucesso ou falha
             if result.returncode == 0:
-                print("✓ TESTE PASSOU!\n")
+                # Código 0 indica sucesso
+                print("TESTE PASSOU!\n")
                 return True
             else:
-                print("✗ TESTE FALHOU!\n")
+                # Código diferente de 0 indica falha
+                print("TESTE FALHOU!\n")
                 if result.stderr:
+                    # Se houver mensagens de erro, exibe
                     print("Erros:", result.stderr)
                 return False
 
         except subprocess.TimeoutExpired:
-            print("✗ TESTE TIMEOUT (>60s)\n")
+            # Captura erro se o teste demorar mais de 60 segundos
+            print("TESTE TIMEOUT (>60s)\n")
             return False
         except Exception as e:
-            print(f"✗ ERRO NO TESTE: {e}\n")
+            # Captura outros erros durante a execução do teste
+            print(f"ERRO NO TESTE: {e}\n")
             return False
 
     def run_all_tests(self):
-        """Executa todos os testes"""
+        # Executa a suite completa de testes com diferentes tamanhos de matrizes
         print("\n")
-        print("╔" + "="*58 + "╗")
-        print("║" + " "*10 + "SUITE DE TESTES AUTOMATIZADOS" + " "*18 + "║")
-        print("║" + " "*10 + "Sistema de Multiplicação Distribuída" + " "*11 + "║")
-        print("╚" + "="*58 + "╝")
+        print("="*60)
+        print("SUITE DE TESTES AUTOMATIZADOS")
+        print("Sistema de Multiplicacao Distribuida")
+        print("="*60)
         print()
 
+        # Define os casos de teste com diferentes dimensões
         tests = [
             ("Matrizes Pequenas (10x10)", 10, 10, 10),
             ("Matrizes Médias (50x50)", 50, 50, 50),
@@ -176,12 +184,14 @@ except Exception as e:
 
         results = []
 
+        # Executa cada teste sequencialmente
         for test_name, rows_A, cols_A, cols_B in tests:
+            # Itera sobre cada caso de teste
             success = self.run_test(test_name, rows_A, cols_A, cols_B)
             results.append((test_name, success))
-            time.sleep(2)  # Pausa entre testes
+            time.sleep(2)
 
-        # Resumo
+        # Gera o resumo dos resultados
         print("\n")
         print("="*60)
         print("RESUMO DOS TESTES")
@@ -191,45 +201,52 @@ except Exception as e:
         total = len(results)
 
         for test_name, success in results:
-            status = "✓ PASSOU" if success else "✗ FALHOU"
+            # Itera sobre os resultados para exibir o status de cada teste
+            status = "PASSOU" if success else "FALHOU"
             print(f"{status}: {test_name}")
 
         print()
         print(f"Total: {passed}/{total} testes passaram")
 
         if passed == total:
+            # Se todos os testes passaram
             print("="*60)
-            print("🎉 TODOS OS TESTES PASSARAM! 🎉")
+            print("TODOS OS TESTES PASSARAM!")
             print("="*60)
         else:
+            # Se algum teste falhou
             print("="*60)
-            print(f"⚠️  {total - passed} TESTE(S) FALHARAM")
+            print(f"{total - passed} TESTE(S) FALHARAM")
             print("="*60)
 
         return passed == total
 
 
 def main():
+    # Função principal que coordena a execução dos testes
     runner = TestRunner()
 
     try:
-        # Inicia servidores
+        # Tenta executar toda a suite de testes
+        # Inicializa os servidores
         runner.start_servers()
 
-        # Executa testes
+        # Executa todos os testes
         all_passed = runner.run_all_tests()
 
-        # Encerra servidores
+        # Finaliza os servidores
         runner.stop_servers()
 
-        # Exit code
+        # Retorna código de saída apropriado
         sys.exit(0 if all_passed else 1)
 
     except KeyboardInterrupt:
-        print("\n\nTestes interrompidos pelo usuário")
+        # Captura interrupção por Ctrl+C
+        print("\n\nTestes interrompidos pelo usuario")
         runner.stop_servers()
         sys.exit(1)
     except Exception as e:
+        # Captura outros erros durante a execução dos testes
         print(f"\nERRO: {e}")
         import traceback
         traceback.print_exc()
