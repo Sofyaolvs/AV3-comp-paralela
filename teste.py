@@ -179,7 +179,7 @@ except Exception as e:
             ("Matrizes Grandes (100x100)", 100, 100, 100),
             ("Matrizes Retangulares (80x120)", 80, 120, 60),
             ("Matrizes Retangulares (200x50)", 200, 50, 100),
-            ("Matrizes Muito Grandes (1x3)", 1, 10, 10),
+            ("Matrizes Muito Grandes (1x3)", 20000, 20000, 2000),
         ]
 
         results = []

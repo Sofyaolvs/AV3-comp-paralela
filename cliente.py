@@ -101,7 +101,7 @@ class DistributedMatrixClient:
         with ThreadPoolExecutor(max_workers=self.num_servers) as executor:
             # Submete todas as tarefas para execução paralela
             future_to_chunk = {}
-            for i, (submatrix, chunk_id) in enumerate(submatrizes):
+            for i, (submatrix, chunk_id) in enumerate(submatrices):
                 # Para cada submatriz, submete uma tarefa ao executor
                 server = self.servers[i]
                 future = executor.submit(
