@@ -48,8 +48,8 @@ def start_server(host='0.0.0.0', port=5000, num_cores=2):
                 # Recebe os dados enviados pelo cliente até encontrar o marcador de fim
                 data = b""
                 while True:
-                    # Loop continua até receber todos os dados
-                    chunk = client_socket.recv(4096)
+                    # Loop continua até receber todos os dados (buffer maior para matrizes grandes)
+                    chunk = client_socket.recv(65536)  # 64KB buffer
                     if not chunk:
                         # Se não recebeu dados, encerra o loop
                         break
@@ -58,6 +58,11 @@ def start_server(host='0.0.0.0', port=5000, num_cores=2):
                         # Se encontrou o marcador de fim, remove e encerra o loop
                         data = data.replace(b"END_OF_DATA", b"")
                         break
+
+                # Verifica se recebeu dados válidos antes de deserializar
+                if len(data) == 0:
+                    print("[!] Conexao vazia recebida (provavelmente teste de conectividade)")
+                    continue
 
                 # Deserializa os dados recebidos (submatriz A, matriz B e ID do chunk)
                 submatrix_a, matrix_b, chunk_id = pickle.loads(data)

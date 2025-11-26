@@ -14,6 +14,18 @@ class DistributedMatrixClient:
         self.servers = servers
         self.num_servers = len(servers)
 
+    def check_server_availability(self, host, port, timeout=2):
+        # Verifica se um servidor está acessível antes de enviar trabalho
+        try:
+            test_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            test_socket.settimeout(timeout)
+            test_socket.connect((host, port))
+            # Fecha imediatamente - servidor detectará como teste de conectividade
+            test_socket.close()
+            return True
+        except Exception:
+            return False
+
     def send_to_server(self, server_info, submatrix_a, matrix_b, chunk_id):
         # Envia uma submatriz para um servidor e recebe o resultado processado
         # Processo: conecta ao servidor -> serializa e envia dados -> recebe resposta -> fecha conexão
@@ -23,7 +35,7 @@ class DistributedMatrixClient:
             # Tenta estabelecer conexão e processar a comunicação com o servidor
             # Cria o socket TCP e estabelece conexão com o servidor
             client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client_socket.settimeout(60)
+            client_socket.settimeout(300)  # 5 minutos para matrizes grandes
 
             print(f"[*] Conectando ao servidor {host}:{port} para chunk #{chunk_id}...")
             client_socket.connect((host, port))
@@ -33,11 +45,11 @@ class DistributedMatrixClient:
             client_socket.sendall(data + b"END_OF_DATA")
             print(f"[>] Dados enviados para {host}:{port} (chunk #{chunk_id})")
 
-            # Recebe o resultado do servidor em blocos de 4KB
+            # Recebe o resultado do servidor em blocos maiores (64KB)
             result_data = b""
             while True:
                 # Loop continua até receber todos os dados ou encontrar marcador de fim
-                chunk = client_socket.recv(4096)
+                chunk = client_socket.recv(65536)  # 64KB buffer
                 if not chunk:
                     # Se não recebeu dados, encerra o loop
                     break
@@ -74,6 +86,21 @@ class DistributedMatrixClient:
         print(f"   Matriz B: {matrix_b.shape}")
         print(f"   Resultado esperado: ({matrix_a.shape[0]}, {matrix_b.shape[1]})")
         print(f"\nServidores disponiveis: {self.num_servers}")
+
+        # Verifica conectividade dos servidores
+        print(f"\n[*] Verificando conectividade dos servidores...")
+        available_servers = []
+        for i, (host, port) in enumerate(self.servers):
+            if self.check_server_availability(host, port):
+                print(f"   [OK] Servidor {host}:{port} esta acessivel")
+                available_servers.append((host, port, i))
+            else:
+                print(f"   [X] Servidor {host}:{port} NAO esta acessivel")
+
+        if not available_servers:
+            raise RuntimeError("Nenhum servidor disponivel! Inicie os servidores antes de executar o cliente.")
+
+        print(f"\n[*] {len(available_servers)}/{self.num_servers} servidores disponiveis")
 
         # Divide a matriz A horizontalmente entre os servidores
         rows_per_server = matrix_a.shape[0] // self.num_servers
@@ -124,6 +151,10 @@ class DistributedMatrixClient:
 
         # Ordena os resultados por chunk_id e concatena verticalmente
         print(f"\n[*] Montando matriz final...")
+
+        if not results:
+            raise RuntimeError("Nenhum resultado foi recebido dos servidores. Verifique se os servidores estao rodando corretamente.")
+
         sorted_results = [results[i] for i in sorted(results.keys())]
         final_result = np.vstack(sorted_results)
 
@@ -135,7 +166,7 @@ class DistributedMatrixClient:
         print(f"Matriz resultante: {final_result.shape}")
         print("=" * 70 + "\n")
 
-        return final_result
+        return final_result, elapsed_time
 
 
 def generate_random_matrices(m, n, p, seed=42):
@@ -144,6 +175,33 @@ def generate_random_matrices(m, n, p, seed=42):
     matrix_a = np.random.randint(1, 10, size=(m, n))
     matrix_b = np.random.randint(1, 10, size=(n, p))
     return matrix_a, matrix_b
+
+
+def multiply_serial(matrix_a, matrix_b):
+    # Realiza multiplicação serial usando numpy para comparação
+    print("\n" + "=" * 70)
+    print(">>> INICIANDO MULTIPLICACAO SERIAL (LOCAL)")
+    print("=" * 70)
+
+    print(f"\nDimensoes:")
+    print(f"   Matriz A: {matrix_a.shape}")
+    print(f"   Matriz B: {matrix_b.shape}")
+    print(f"   Resultado esperado: ({matrix_a.shape[0]}, {matrix_b.shape[1]})")
+
+    print(f"\n[*] Processando multiplicacao serial...")
+    start_time = time.time()
+
+    result = np.dot(matrix_a, matrix_b)
+
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+
+    print(f"\n[OK] MULTIPLICACAO SERIAL CONCLUIDA!")
+    print(f"Tempo total: {elapsed_time:.4f} segundos")
+    print(f"Matriz resultante: {result.shape}")
+    print("=" * 70 + "\n")
+
+    return result, elapsed_time
 
 
 def verify_result(matrix_a, matrix_b, result):
@@ -295,26 +353,65 @@ def main():
 
     matrix_a, matrix_b = generate_random_matrices(m, n, p)
 
+    # Primeiro executa a multiplicação serial para comparação
+    print("\n" + "~" * 70)
+    print("EXECUTANDO MULTIPLICACAO SERIAL PARA COMPARACAO")
+    print("~" * 70)
+
+    try:
+        serial_result, serial_time = multiply_serial(matrix_a, matrix_b)
+    except Exception as e:
+        print(f"\n[X] Erro durante execucao serial: {e}")
+        import traceback
+        traceback.print_exc()
+        return
+
     # Cria o cliente e executa a multiplicação distribuída
+    print("\n" + "~" * 70)
+    print("EXECUTANDO MULTIPLICACAO DISTRIBUIDA (PARALELA)")
+    print("~" * 70)
+
     client = DistributedMatrixClient(servers)
 
     try:
         # Tenta executar a multiplicação distribuída e exibir resultados
-        result = client.multiply_distributed(matrix_a, matrix_b)
+        parallel_result, parallel_time = client.multiply_distributed(matrix_a, matrix_b)
 
-        # Exibe uma amostra do resultado
-        rows_to_show = min(5, result.shape[0])
-        cols_to_show = min(5, result.shape[1])
-        print(f"Amostra do resultado (primeiros {rows_to_show}x{cols_to_show} elementos):")
-        print(result[:rows_to_show, :cols_to_show])
+        # Exibe uma amostra do resultado paralelo
+        rows_to_show = min(5, parallel_result.shape[0])
+        cols_to_show = min(5, parallel_result.shape[1])
+        print(f"Amostra do resultado paralelo (primeiros {rows_to_show}x{cols_to_show} elementos):")
+        print(parallel_result[:rows_to_show, :cols_to_show])
         print()
 
         # Valida a corretude do resultado
-        verify_result(matrix_a, matrix_b, result)
+        verify_result(matrix_a, matrix_b, parallel_result)
+
+        # Comparação de performance
+        print("\n" + "=" * 70)
+        print("COMPARACAO DE PERFORMANCE: SERIAL vs PARALELO")
+        print("=" * 70)
+        print(f"\nTempo Serial:    {serial_time:.4f} segundos")
+        print(f"Tempo Paralelo:  {parallel_time:.4f} segundos")
+
+        if parallel_time < serial_time:
+            speedup = serial_time / parallel_time
+            improvement = ((serial_time - parallel_time) / serial_time) * 100
+            print(f"\nSpeedup:         {speedup:.2f}x")
+            print(f"Melhoria:        {improvement:.2f}% mais rapido")
+            print(f"\n[OK] A execucao paralela foi MAIS RAPIDA!")
+        else:
+            slowdown = parallel_time / serial_time
+            degradation = ((parallel_time - serial_time) / serial_time) * 100
+            print(f"\nSlowdown:        {slowdown:.2f}x")
+            print(f"Degradacao:      {degradation:.2f}% mais lento")
+            print(f"\n[!] A execucao serial foi mais rapida (overhead de rede)")
+
+        print("=" * 70 + "\n")
 
     except Exception as e:
         # Captura qualquer erro durante a execução e exibe detalhes
-        print(f"\n[X] Erro durante a execucao: {e}")
+        print(f"\n[X] Erro durante a execucao paralela: {e}")
         import traceback
         traceback.print_exc()
 
