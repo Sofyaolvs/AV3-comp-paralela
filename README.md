@@ -174,7 +174,7 @@ python3 cliente.py
 
 O sistema valida automaticamente os resultados comparando com numpy.dot().
 
-## Novas Funcionalidades
+
 
 ### Comparação Serial vs Paralelo
 - O cliente agora executa automaticamente tanto a multiplicação serial quanto a paralela
